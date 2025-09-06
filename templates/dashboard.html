@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Dashboard</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; margin: 0; background-color: #2c3e50; color: #fff; }
+        .scrolling-text { position: fixed; top: 0; left: 0; width: 100%; font-size: 3rem; white-space: nowrap; overflow: hidden; animation: scrollText 30s linear infinite; }
+        @keyframes scrollText { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+        .header { padding: 20px; text-align: center; }
+        .game-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; padding: 40px; }
+        .game-box { 
+            background-size: cover; 
+            background-position: center; 
+            border-radius: 15px; 
+            text-align: center; 
+            padding: 50px 20px; 
+            color: white; 
+            text-shadow: 2px 2px 4px #000; 
+            position: relative; 
+            overflow: hidden; 
+        }
+        .game-box::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.4); z-index: 1; }
+        .game-box h2, .game-box a { position: relative; z-index: 2; }
+        .game-box a { text-decoration: none; background: rgba(255, 255, 255, 0.2); padding: 10px 20px; border-radius: 5px; color: white; transition: background 0.3s; }
+        .game-box a:hover { background: rgba(255, 255, 255, 0.4); }
+        .riddle { background-image: url('{{ url_for('static', filename='images/riddles.jpg') }}'); }
+        .logic { background-image: url('{{ url_for('static', filename='images/logic_puzzle.jpg') }}'); }
+        .word { background-image: url('{{ url_for('static', filename='images/Word.jpg') }}'); }
+        .spatial { background-image: url('{{ url_for('static', filename='images/spatial.jpg') }}'); }
+        .footer-links { text-align: center; padding: 20px; }
+        .footer-links a { color: white; text-decoration: none; margin: 0 15px; }
+    </style>
+</head>
+<body>
+    <div class="scrolling-text">Puzzle Game</div>
+    <div class="header">
+        <h1>Welcome, {{ username }}!</h1>
+        <p>Please select one of the games which you are interested.</p>
+    </div>
+    <div class="game-grid">
+        <div class="game-box riddle">
+            <h2>Riddle Game</h2>
+            <a href="{{ url_for('game_board', game_type='riddle') }}">Play Now</a>
+        </div>
+        <div class="game-box logic">
+            <h2>Logic Puzzle</h2>
+            <a href="{{ url_for('game_board', game_type='logic') }}">Play Now</a>
+        </div>
+        <div class="game-box word">
+            <h2>Word Puzzle</h2>
+            <a href="{{ url_for('game_board', game_type='word') }}">Play Now</a>
+        </div>
+        <div class="game-box spatial">
+            <h2>Spatial Puzzle</h2>
+            <a href="{{ url_for('game_board', game_type='spatial') }}">Play Now</a>
+        </div>
+    </div>
+    <div class="footer-links">
+        <a href="{{ url_for('leaderboard') }}">Leaderboard</a>
+        <a href="{{ url_for('logout') }}">Logout</a>
+    </div>
+</body>
+</html>

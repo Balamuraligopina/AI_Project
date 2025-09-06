@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="game-title">Puzzle Game</title>
+    <style>
+        body { 
+            font-family: 'Arial', sans-serif; 
+            background-color: #000; 
+            background-size: cover; 
+            background-position: center; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            text-align: center; 
+            color: #fff; 
+        }
+        .container { background: rgba(0, 0, 0, 0.7); padding: 40px; border-radius: 15px; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5); width: 90%; max-width: 700px; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); border: 1px solid rgba(255, 255, 255, 0.3); }
+        h1 { font-size: 2.5rem; text-shadow: 2px 2px 4px #000; }
+        #puzzle-text { font-size: 1.8rem; margin: 20px 0; min-height: 80px; font-style: italic; }
+        .options-container { display: flex; flex-direction: column; gap: 15px; margin-top: 30px; }
+        .option-btn { padding: 18px; font-size: 1.1rem; border: none; border-radius: 8px; cursor: pointer; background-color: #333; color: #fff; transition: background-color 0.3s, transform 0.2s; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); }
+        .option-btn:hover { background-color: #555; transform: translateY(-2px); }
+        .option-btn.correct { background-color: #28a745; animation: pulse 1s infinite; }
+        .option-btn.incorrect { background-color: #dc3545; }
+        #new-puzzle-btn { padding: 15px 30px; font-size: 1.2rem; background-color: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 25px; transition: background-color 0.3s; }
+        #new-puzzle-btn:hover { background-color: #0056b3; }
+        #feedback { margin-top: 20px; font-size: 1.4rem; font-weight: bold; }
+        .correct { color: #28a745; }
+        .incorrect { color: #dc3545; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        .logout-link { position: absolute; top: 20px; right: 20px; color: white; text-decoration: none; font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <a href="{{ url_for('logout') }}" class="logout-link">Logout</a>
+
+    <div class="container">
+        <h1 id="game-heading">Riddle Game 🧠</h1>
+        <p id="puzzle-text">Click "New Puzzle" to begin.</p>
+        <div id="options-container" class="options-container"></div>
+        <button id="new-puzzle-btn">New Puzzle</button>
+        <p id="feedback"></p>
+        <a href="{{ url_for('dashboard') }}" style="color: white; margin-top: 20px; display: block;">Back to Dashboard</a>
+    </div>
+
+    <script>
+        const puzzleText = document.getElementById('puzzle-text');
+        const optionsContainer = document.getElementById('options-container');
+        const newPuzzleBtn = document.getElementById('new-puzzle-btn');
+        const feedbackText = document.getElementById('feedback');
+        const gameHeading = document.getElementById('game-heading');
+        const gameTitle = document.getElementById('game-title');
+        
+        const path = window.location.pathname;
+        const url_parts = path.split('/');
+        let puzzleType = url_parts[url_parts.length - 1];
+
+        // This block dynamically sets the background image using Jinja2 generated URLs
+        const backgroundUrls = {
+            'riddle': "{{ url_for('static', filename='images/riddles.jpg') }}",
+            'logic': "{{ url_for('static', filename='images/logic_puzzle.jpg') }}",
+            'word': "{{ url_for('static', filename='images/Word.jpg') }}",
+            'spatial': "{{ url_for('static', filename='images/spatial.jpg') }}"
+        };
+
+        if (puzzleType in backgroundUrls) {
+            document.body.style.backgroundImage = `url(${backgroundUrls[puzzleType]})`;
+        }
+
+        if (puzzleType === 'logic') {
+            gameHeading.textContent = 'Logic Puzzle 🧩';
+            gameTitle.textContent = 'Logic Puzzle';
+        } else if (puzzleType === 'word') {
+            gameHeading.textContent = 'Word Puzzle 📝';
+            gameTitle.textContent = 'Word Puzzle';
+        } else if (puzzleType === 'spatial') {
+            gameHeading.textContent = 'Spatial Puzzle 📐';
+            gameTitle.textContent = 'Spatial Puzzle';
+        } else {
+            puzzleType = 'riddle';
+            gameHeading.textContent = 'Riddle Game 🧠';
+            gameTitle.textContent = 'Riddle Game';
+        }
+
+        let currentAnswer = '';
+
+        async function fetchNewPuzzle() {
+            puzzleText.textContent = 'Generating a new puzzle...';
+            optionsContainer.innerHTML = '';
+            feedbackText.textContent = '';
+            newPuzzleBtn.disabled = true;
+
+            try {
+                const response = await fetch(`/get_puzzle?type=${puzzleType}`);
+                if (!response.ok) throw new Error('Failed to fetch puzzle from backend.');
+                const data = await response.json();
+
+                if (data.game_over) {
+                    puzzleText.textContent = 'Game Over! You have completed all puzzles of this type. 🎉';
+                    optionsContainer.innerHTML = '';
+                    newPuzzleBtn.textContent = 'Play Again';
+                    newPuzzleBtn.onclick = () => resetGame(puzzleType);
+                    feedbackText.textContent = '';
+                } else {
+                    puzzleText.textContent = data.puzzle;
+                    currentAnswer = data.answer;
+                    renderOptions(data.options);
+                    newPuzzleBtn.textContent = 'Next Puzzle';
+                    newPuzzleBtn.onclick = fetchNewPuzzle;
+                }
+            } catch (error) {
+                puzzleText.textContent = 'Error: ' + error.message;
+            } finally {
+                newPuzzleBtn.disabled = false;
+            }
+        }
+
+        function renderOptions(options) {
+            optionsContainer.innerHTML = '';
+            options.forEach(option => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.className = 'option-btn';
+                button.onclick = () => handleGuess(option);
+                optionsContainer.appendChild(button);
+            });
+        }
+
+        async function handleGuess(guess) {
+            try {
+                const response = await fetch('/check_answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ guess: guess, answer: currentAnswer, game_type: puzzleType })
+                });
+
+                if (!response.ok) throw new Error('Failed to check answer from backend.');
+                const data = await response.json();
+                const allButtons = document.querySelectorAll('.option-btn');
+                
+                allButtons.forEach(btn => {
+                    btn.disabled = true;
+                    if (btn.textContent.trim().toLowerCase() === currentAnswer.trim().toLowerCase()) {
+                        btn.classList.add('correct');
+                    }
+                });
+
+                if (data.is_correct) {
+                    feedbackText.textContent = 'Correct! 🎉';
+                    feedbackText.className = 'correct';
+                    setTimeout(fetchNewPuzzle, 2000);
+                } else {
+                    feedbackText.textContent = 'Incorrect, the correct answer was: ' + currentAnswer;
+                    feedbackText.className = 'incorrect';
+                    const incorrectButton = Array.from(allButtons).find(btn => btn.textContent.trim().toLowerCase() === guess.trim().toLowerCase());
+                    if (incorrectButton) incorrectButton.classList.add('incorrect');
+                }
+            } catch (error) {
+                feedbackText.textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function resetGame(type) {
+            try {
+                const response = await fetch('/reset_game', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: type })
+                });
+                if (!response.ok) throw new Error('Failed to reset game.');
+                fetchNewPuzzle();
+            } catch (error) {
+                feedbackText.textContent = 'Error resetting game: ' + error.message;
+            }
+        }
+        
+        newPuzzleBtn.addEventListener('click', fetchNewPuzzle);
+        fetchNewPuzzle();
+    </script>
+</body>
+</html>
