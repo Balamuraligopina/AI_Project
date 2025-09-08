@@ -6,13 +6,15 @@ import random
 import os
 import smtplib
 from email.message import EmailMessage
+import secrets
+import string
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_super_secret_key_here'
 
-# --- Email Configuration ---
-EMAIL_ADDRESS = os.environ.get('EMAIL_USER')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASS')
+# --- Email Configuration (set as environment variables) ---
+EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
 
 # --- Database Setup ---
 def get_db_connection():
@@ -27,7 +29,8 @@ def init_db():
             id INTEGER PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            temp_password INTEGER DEFAULT 0
         )
     ''')
     conn.execute('''
@@ -55,25 +58,7 @@ def get_all_riddles():
         {"puzzle": "What has an eye but no nose?", "options": ["A needle", "A potato", "A storm"], "answer": "A needle"}
     ]
 
-def get_all_logic_puzzles():
-    return [
-        {"puzzle": "I am an odd number. Take away one letter and I become even. What am I?", "options": ["Nine", "Seven", "Five"], "answer": "Seven"},
-        {"puzzle": "A man is in a room. There are no windows and no doors. The only thing in the room is a table and a saw. The man gets out. How?", "options": ["He saws the table in half", "He saws the room in half", "He saws the table in half and put two halves together", "He saws the table in half, and two halves make a whole, and he climbs out a hole"], "answer": "He saws the table in half, and two halves make a whole, and he climbs out a hole"},
-    ]
-
-def get_all_word_puzzles():
-    return [
-        {"puzzle": "What five-letter word becomes shorter when you add two letters to it?", "options": ["Short", "Longer", "Shortest"], "answer": "Short"},
-        {"puzzle": "I am a word of five letters. If you take away my last letter, I am a three-letter word. If you take away my last two letters, I am a five-letter word. What am I?", "options": ["Three", "Start", "Empty", "Queue"], "answer": "Empty"},
-    ]
-
-def get_all_spatial_puzzles():
-    return [
-        {"puzzle": "I am tall when I am young, and I am short when I am old. What am I?", "options": ["A tree", "A candle", "A pencil"], "answer": "A candle"},
-        {"puzzle": "What can you catch, but not throw?", "options": ["A ball", "A cold", "A fish"], "answer": "A cold"},
-    ]
-
-# --- Routes for Authentication and Page Navigation ---
+# --- Authentication and Page Navigation Routes ---
 @app.route('/')
 def home():
     if 'username' in session:
@@ -87,11 +72,16 @@ def login():
         password = request.form['password']
         conn = get_db_connection()
         user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        conn.close()
+        
         if user and check_password_hash(user['password'], password):
             session['username'] = user['username']
             session['user_id'] = user['id']
+            # Check if this is a temporary password login
+            if user['temp_password'] == 1:
+                return redirect(url_for('change_password_required'))
+            conn.close()
             return redirect(url_for('dashboard'))
+        conn.close()
         return render_template('login.html', error='Invalid username or password')
     return render_template('login.html')
 
@@ -104,7 +94,7 @@ def register():
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256:150000')
         conn = get_db_connection()
         try:
-            conn.execute('INSERT INTO users (username, email, password) VALUES (?, ?, ?)', (username, email, hashed_password))
+            conn.execute('INSERT INTO users (username, email, password, temp_password) VALUES (?, ?, ?, ?)', (username, email, hashed_password, 0))
             conn.commit()
             return redirect(url_for('login'))
         except sqlite3.IntegrityError:
@@ -112,38 +102,108 @@ def register():
         finally:
             conn.close()
     return render_template('register.html')
-
+    
+# --- FORGOT PASSWORD ROUTE ---
 @app.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
-        email = request.form['email']
+        email = request.form.get('email')
+        
         conn = get_db_connection()
         user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-        conn.close()
+        
         if user:
+            alphabet = string.ascii_letters + string.digits
+            new_password = ''.join(secrets.choice(alphabet) for i in range(12))
+            
+            hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256:150000')
+            conn.execute('UPDATE users SET password = ?, temp_password = ? WHERE email = ?', (hashed_password, 1, email))
+            conn.commit()
+
             msg = EmailMessage()
-            msg.set_content(f"Hello {user['username']},\n\nYour username is: {user['username']}\n\nThis is a password reset email. In a real application, you would be provided with a link to reset your password. For this demo, please contact support.\n\nThank you!")
-            msg['Subject'] = 'Password Recovery'
+            msg['Subject'] = 'Password Recovery for Your Account'
             msg['From'] = EMAIL_ADDRESS
             msg['To'] = email
             
-            try:
-                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                    smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-                    smtp.send_message(msg)
-                return render_template('forgot_password.html', message='An email has been sent to your address with recovery instructions.')
-            except Exception as e:
-                return render_template('forgot_password.html', error=f'Failed to send email. Error: {e}')
+            body = f"""
+Hello {user['username']},
 
-        return render_template('forgot_password.html', error='Email not found.')
+You requested a password reset for your account.
+
+Your new temporary password is: {new_password}
+
+Please use this to log in and change your password as soon as possible.
+
+Thank you,
+Your Game Team
+"""
+            msg.set_content(body)
+
+            try:
+                with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+                    smtp.starttls()
+                    smtp.login("sach8084@gmail.com", "ywjp jkmn bdlc ecup")
+                    smtp.send_message(msg)
+                
+                conn.close()
+                return render_template('forgot_password.html', message='An email has been sent to your address with your new password.')
+
+            except smtplib.SMTPAuthenticationError:
+                conn.close()
+                return render_template('forgot_password.html', error='Failed to send email. Please check your email credentials and app password.')
+            except Exception as e:
+                conn.close()
+                return render_template('forgot_password.html', error=f'Failed to send email. Error: {e}. Please try again later.')
+        
+        else:
+            conn.close()
+            return render_template('forgot_password.html', error='Email not found.')
+
     return render_template('forgot_password.html')
 
+# --- New Route for Password Change ---
+@app.route('/change_password_required', methods=['GET', 'POST'])
+def change_password_required():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+
+        if new_password != confirm_password:
+            return render_template('change_password.html', error="Passwords do not match.")
+        
+        if len(new_password) < 6:
+            return render_template('change_password.html', error="Password must be at least 6 characters.")
+
+        hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256:150000')
+        conn = get_db_connection()
+        conn.execute('UPDATE users SET password = ?, temp_password = ? WHERE id = ?', (hashed_password, 0, session['user_id']))
+        conn.commit()
+        conn.close()
+
+        return redirect(url_for('dashboard'))
+    
+    return render_template('change_password.html')
+
+# --- Remaining Routes ---
 @app.route('/dashboard')
 def dashboard():
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # Check if a password change is required
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+
+    if user and user['temp_password'] == 1:
+        return redirect(url_for('change_password_required'))
+
     return render_template('dashboard.html', username=session['username'])
 
+# ... (rest of your routes) ...
 @app.route('/logout')
 def logout():
     session.pop('username', None)
@@ -155,12 +215,27 @@ def logout():
 def game_board(game_type):
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    # You might want to add a check here as well to be safe
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+    if user and user['temp_password'] == 1:
+        return redirect(url_for('change_password_required'))
+        
     return render_template('game_board.html', game_type=game_type)
-
+    
 @app.route('/leaderboard')
 def leaderboard():
     if 'username' not in session:
         return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+    if user and user['temp_password'] == 1:
+        return redirect(url_for('change_password_required'))
+
     conn = get_db_connection()
     top_scores = conn.execute('''
         SELECT u.username, s.game_type, SUM(s.score) as total_score
@@ -171,8 +246,7 @@ def leaderboard():
     ''').fetchall()
     conn.close()
     return render_template('leaderboard.html', scores=top_scores)
-
-# --- Puzzle API Endpoints ---
+    
 @app.route('/get_puzzle', methods=['GET'])
 def get_puzzle():
     puzzle_type = request.args.get('type')
@@ -185,57 +259,7 @@ def get_puzzle():
     all_puzzles = []
     if puzzle_type == 'riddle':
         all_puzzles = get_all_riddles()
-    elif puzzle_type == 'logic':
-        all_puzzles = get_all_logic_puzzles()
-    elif puzzle_type == 'word':
-        all_puzzles = get_all_word_puzzles()
-    elif puzzle_type == 'spatial':
-        all_puzzles = get_all_spatial_puzzles()
-    else:
-        return jsonify({"error": "Invalid puzzle type"}), 400
-
-    available_puzzles = [p for p in all_puzzles if p['puzzle'] not in session['used_puzzles'][puzzle_type]]
-
-    if not available_puzzles:
-        return jsonify({"game_over": True})
-
-    chosen_puzzle = random.choice(available_puzzles)
-    
-    session['used_puzzles'][puzzle_type].append(chosen_puzzle['puzzle'])
-    session.modified = True
-    
-    return jsonify({
-        "puzzle": chosen_puzzle["puzzle"],
-        "options": chosen_puzzle["options"],
-        "answer": chosen_puzzle["answer"]
-    })
-
-@app.route('/check_answer', methods=['POST'])
-def check_answer():
-    data = request.json
-    player_guess = data.get('guess').lower().strip()
-    correct_answer = data.get('answer').lower().strip()
-    game_type = data.get('game_type')
-    user_id = session.get('user_id')
-    
-    is_correct = player_guess == correct_answer
-    
-    if is_correct and user_id:
-        conn = get_db_connection()
-        conn.execute('INSERT INTO scores (user_id, game_type, score) VALUES (?, ?, ?)', (user_id, game_type, 1))
-        conn.commit()
-        conn.close()
-
-    return jsonify({"is_correct": is_correct})
-
-@app.route('/reset_game', methods=['POST'])
-def reset_game():
-    puzzle_type = request.json.get('type')
-    if 'used_puzzles' in session and puzzle_type in session['used_puzzles']:
-        session['used_puzzles'][puzzle_type] = []
-        session.modified = True
-        return jsonify({"message": "Game reset successfully"})
-    return jsonify({"message": "Nothing to reset"})
+    return jsonify(random.choice(all_puzzles))
 
 if __name__ == '__main__':
     if not os.path.exists('users.db'):
